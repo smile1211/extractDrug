@@ -2,6 +2,7 @@
 // Express API Server - 약품 검색 서비스
 // ============================================================================
 
+require("dotenv").config();
 const express = require("express");
 const { createClient } = require("@supabase/supabase-js");
 const {
@@ -9,10 +10,21 @@ const {
   calculateSimilarity,
   getInitials,
   levenshteinDistance,
-} = require("./utils/similarity");
+} = require("./similarity"); // utils/ 제거
 
 const app = express();
 app.use(express.json());
+
+// CORS 설정 (모든 origin 허용)
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
 
 // Supabase 클라이언트 초기화
 const supabase = createClient(
@@ -28,6 +40,38 @@ app.get("/health", (req, res) => {
     status: "ok",
     timestamp: new Date().toISOString(),
   });
+});
+
+// ============================================================================
+// 테스트용 - DB 데이터 확인 API
+// ============================================================================
+app.get("/api/test-db", async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("drug_nomalization")
+      .select("content, metadata")
+      .limit(10);
+
+    if (error) {
+      return res.json({ success: false, error: error.message });
+    }
+
+    res.json({
+      success: true,
+      count: data?.length || 0,
+      samples: data?.slice(0, 5).map((d) => ({
+        content: d.content,
+        content_length: d.content?.length || 0,
+        metadata_keys: Object.keys(
+          typeof d.metadata === "string"
+            ? JSON.parse(d.metadata)
+            : d.metadata || {}
+        ),
+      })),
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // ============================================================================
@@ -55,12 +99,18 @@ app.post("/api/search-drugs", async (req, res) => {
 
     // Supabase에서 약품 데이터 가져오기
     const { data: drugDatabase, error: dbError } = await supabase
-      .from("drug_nomalization") // 실제 테이블명
+      .from("documents") // 실제 테이블명
       .select("content, metadata");
 
     if (dbError) {
       throw new Error(`DB 조회 실패: ${dbError.message}`);
     }
+
+    // 디버깅: DB 데이터 확인
+    console.log("📊 DB 조회 결과:", {
+      총개수: drugDatabase?.length || 0,
+      첫번째데이터: drugDatabase?.[0],
+    });
 
     if (!drugDatabase || drugDatabase.length === 0) {
       return res.status(500).json({
@@ -72,6 +122,8 @@ app.post("/api/search-drugs", async (req, res) => {
 
     // 각 약품명에 대해 검색 수행
     const searchResults = drug_names.map((drugName) => {
+      console.log(`🔍 검색어: "${drugName}"`);
+
       const results = searchDrugs(
         drugDatabase,
         drugName,
@@ -79,6 +131,13 @@ app.post("/api/search-drugs", async (req, res) => {
         threshold,
         limit
       );
+
+      console.log(`✅ 매칭 결과: ${results.length}개`);
+      if (results.length > 0) {
+        console.log(
+          `   최고 점수: ${results[0].score}, 약품명: ${results[0].content}`
+        );
+      }
 
       return {
         inputDrugName: drugName,
@@ -182,8 +241,8 @@ app.get("/api/search-drug/:drugName", async (req, res) => {
 // ============================================================================
 // 서버 시작
 // ============================================================================
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
 });
