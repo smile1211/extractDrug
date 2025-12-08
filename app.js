@@ -208,7 +208,7 @@ app.get("/api/search-drug/:drugName", async (req, res) => {
     const { limit = 3, threshold = 50 } = req.query;
 
     const { data: drugDatabase, error: dbError } = await supabase
-      .from("documents")
+      .from("drug_nomalization")
       .select("content, metadata");
 
     if (dbError) throw new Error(`DB 조회 실패: ${dbError.message}`);
