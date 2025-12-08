@@ -99,7 +99,7 @@ app.post("/api/search-drugs", async (req, res) => {
 
     // Supabase에서 약품 데이터 가져오기
     const { data: drugDatabase, error: dbError } = await supabase
-      .from("documents") // 실제 테이블명
+      .from("drug_nomalization") // 실제 테이블명
       .select("content, metadata");
 
     if (dbError) {

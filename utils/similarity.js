@@ -85,6 +85,22 @@ function getInitials(text) {
 }
 
 /**
+ * content 필드에서 약품명 추출
+ */
+function extractDrugName(content) {
+  if (!content) return "";
+
+  // "의약품명: XXX" 패턴에서 약품명 추출
+  const match = content.match(/의약품명[:\s]*([^\n]+)/);
+  if (match && match[1]) {
+    return match[1].trim();
+  }
+
+  // 매칭 실패 시 원본 반환
+  return content;
+}
+
+/**
  * 약품 검색 (유사도 기반)
  *
  * @param {Array} drugDatabase - 약품 데이터베이스
@@ -103,9 +119,14 @@ function searchDrugs(
 ) {
   if (!searchTerm?.trim()) return [];
 
+  console.log(
+    `🔍 검색 시작: "${searchTerm}", 알고리즘: ${algorithm}, threshold: ${threshold}`
+  );
+  console.log(`📊 DB 크기: ${drugDatabase.length}개`);
+
   const results = drugDatabase.map((drug) => {
-    // 약품명 필드 (여러 가능성 대응)
-    const drugName = drug.content || drug.제품명 || drug.product_name || "";
+    // content에서 약품명 추출
+    const drugName = extractDrugName(drug.content || "");
     let score = 0;
 
     if (algorithm === "levenshtein") {
@@ -132,10 +153,16 @@ function searchDrugs(
     };
   });
 
-  return results
-    .filter((r) => r.score >= threshold)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
+  const filtered = results.filter((r) => r.score >= threshold);
+  console.log(`✅ threshold ${threshold} 이상: ${filtered.length}개`);
+
+  if (filtered.length > 0) {
+    console.log(
+      `   최고 점수: ${filtered[0].score}, 약품명: ${filtered[0].matchedName}`
+    );
+  }
+
+  return filtered.sort((a, b) => b.score - a.score).slice(0, limit);
 }
 
 module.exports = {
