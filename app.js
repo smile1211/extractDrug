@@ -10,7 +10,7 @@ const {
   calculateSimilarity,
   getInitials,
   levenshteinDistance,
-} = require("./similarity"); // utils/ 제거
+} = require("./utils/similarity"); // utils/ 제거
 
 const app = express();
 app.use(express.json());
