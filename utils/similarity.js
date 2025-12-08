@@ -170,4 +170,5 @@ module.exports = {
   calculateSimilarity,
   getInitials,
   searchDrugs,
+  extractDrugName,
 };
