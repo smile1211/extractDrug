@@ -10,7 +10,7 @@ const {
   calculateSimilarity,
   getInitials,
   levenshteinDistance,
-} = require("./utils/similarity"); // utils/ 제거
+} = require("./utils/similarity");
 
 const app = express();
 app.use(express.json());
@@ -31,6 +31,47 @@ const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_KEY
 );
+
+// ============================================================================
+// 전체 약품 데이터를 가져오는 헬퍼 함수
+// ============================================================================
+async function getAllDrugs() {
+  let allData = [];
+  let from = 0;
+  const pageSize = 1000; // Supabase의 페이지당 최대 크기
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("drug_nomalization")
+      .select("content, metadata")
+      .range(from, from + pageSize - 1);
+
+    if (error) {
+      throw new Error(`DB 조회 실패: ${error.message}`);
+    }
+
+    if (!data || data.length === 0) {
+      break; // 더 이상 데이터가 없으면 종료
+    }
+
+    allData = allData.concat(data);
+
+    console.log(
+      `📥 페이지 로드: ${from} ~ ${from + data.length} (누적: ${
+        allData.length
+      }개)`
+    );
+
+    if (data.length < pageSize) {
+      break; // 마지막 페이지
+    }
+
+    from += pageSize;
+  }
+
+  console.log(`✅ 전체 로드 완료: ${allData.length}개`);
+  return allData;
+}
 
 // ============================================================================
 // Health Check
@@ -56,9 +97,15 @@ app.get("/api/test-db", async (req, res) => {
       return res.json({ success: false, error: error.message });
     }
 
+    // 전체 개수 확인
+    const { count } = await supabase
+      .from("drug_nomalization")
+      .select("*", { count: "exact", head: true });
+
     res.json({
       success: true,
-      count: data?.length || 0,
+      totalCount: count,
+      sampleCount: data?.length || 0,
       samples: data?.slice(0, 5).map((d) => ({
         content: d.content,
         content_length: d.content?.length || 0,
@@ -97,20 +144,13 @@ app.post("/api/search-drugs", async (req, res) => {
       });
     }
 
-    // Supabase에서 약품 데이터 가져오기
-    const { data: drugDatabase, error: dbError } = await supabase
-      .from("drug_nomalization") // 실제 테이블명
-      .select("content, metadata");
+    console.log(`\n${"=".repeat(80)}`);
+    console.log(`🔍 약품 검색 요청`);
+    console.log(`   검색 약품: ${drug_names.join(", ")}`);
+    console.log(`${"=".repeat(80)}\n`);
 
-    if (dbError) {
-      throw new Error(`DB 조회 실패: ${dbError.message}`);
-    }
-
-    // 디버깅: DB 데이터 확인
-    console.log("📊 DB 조회 결과:", {
-      총개수: drugDatabase?.length || 0,
-      첫번째데이터: drugDatabase?.[0],
-    });
+    // 전체 약품 데이터 가져오기 (페이징 처리)
+    const drugDatabase = await getAllDrugs();
 
     if (!drugDatabase || drugDatabase.length === 0) {
       return res.status(500).json({
@@ -122,8 +162,6 @@ app.post("/api/search-drugs", async (req, res) => {
 
     // 각 약품명에 대해 검색 수행
     const searchResults = drug_names.map((drugName) => {
-      console.log(`🔍 검색어: "${drugName}"`);
-
       const results = searchDrugs(
         drugDatabase,
         drugName,
@@ -131,13 +169,6 @@ app.post("/api/search-drugs", async (req, res) => {
         threshold,
         limit
       );
-
-      console.log(`✅ 매칭 결과: ${results.length}개`);
-      if (results.length > 0) {
-        console.log(
-          `   최고 점수: ${results[0].score}, 약품명: ${results[0].content}`
-        );
-      }
 
       return {
         inputDrugName: drugName,
@@ -179,6 +210,7 @@ app.post("/api/search-drugs", async (req, res) => {
       intent,
       originalQuery: question_summary,
       drugCount: drug_names.length,
+      databaseSize: drugDatabase.length,
       searchResults,
       summary: {
         totalSearched: drug_names.length,
@@ -207,11 +239,7 @@ app.get("/api/search-drug/:drugName", async (req, res) => {
     const { drugName } = req.params;
     const { limit = 3, threshold = 50 } = req.query;
 
-    const { data: drugDatabase, error: dbError } = await supabase
-      .from("drug_nomalization")
-      .select("content, metadata");
-
-    if (dbError) throw new Error(`DB 조회 실패: ${dbError.message}`);
+    const drugDatabase = await getAllDrugs();
 
     const results = searchDrugs(
       drugDatabase,
@@ -225,6 +253,7 @@ app.get("/api/search-drug/:drugName", async (req, res) => {
       success: true,
       inputDrugName: drugName,
       found: results.length > 0,
+      databaseSize: drugDatabase.length,
       results,
       timestamp: new Date().toISOString(),
     });
